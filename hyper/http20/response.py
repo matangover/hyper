@@ -75,7 +75,7 @@ class HTTP20Response(object):
             self._decompressobj = None
 
     @property
-    def trailers(self):
+    async def trailers(self):
         """
         Trailers on the HTTP message, if any.
 
@@ -85,12 +85,12 @@ class HTTP20Response(object):
                      read into memory.
         """
         if self._trailers is None:
-            self._trailers = self._stream.gettrailers() or HTTPHeaderMap()
+            self._trailers = await self._stream.gettrailers() or HTTPHeaderMap()
             strip_headers(self._trailers)
 
         return self._trailers
 
-    def read(self, amt=None, decode_content=True):
+    async def read(self, amt=None, decode_content=True):
         """
         Reads the response body, or up to the next ``amt`` bytes.
 
@@ -108,12 +108,12 @@ class HTTP20Response(object):
             response_complete = False
         elif amt is not None:
             read_amt = amt - len(self._data_buffer)
-            self._data_buffer += self._stream._read(read_amt)
+            self._data_buffer += await self._stream._read(read_amt)
             data = self._data_buffer[:amt]
             self._data_buffer = self._data_buffer[amt:]
             response_complete = len(data) < amt
         else:
-            data = b''.join([self._data_buffer, self._stream._read()])
+            data = b''.join([self._data_buffer, await self._stream._read()])
             response_complete = True
 
         # We may need to decode the body.
@@ -131,37 +131,37 @@ class HTTP20Response(object):
 
         # We're at the end, close the connection.
         if response_complete:
-            self.close()
+            await self.close()
 
         return data
 
-    def read_chunked(self, decode_content=True):
-        """
-        Reads chunked transfer encoded bodies. This method returns a generator:
-        each iteration of which yields one data frame *unless* the frames
-        contain compressed data and ``decode_content`` is ``True``, in which
-        case it yields whatever the decompressor provides for each chunk.
-
-        .. warning:: This may yield the empty string, without that being the
-                     end of the body!
-        """
-        while True:
-            data = self._stream._read_one_frame()
-
-            if data is None:
-                break
-
-            if decode_content and self._decompressobj:
-                data = self._decompressobj.decompress(data)
-
-            yield data
-
-        if decode_content and self._decompressobj:
-            yield self._decompressobj.flush()
-
-        self.close()
-
-        return
+    # async def read_chunked(self, decode_content=True):
+    #     """
+    #     Reads chunked transfer encoded bodies. This method returns a generator:
+    #     each iteration of which yields one data frame *unless* the frames
+    #     contain compressed data and ``decode_content`` is ``True``, in which
+    #     case it yields whatever the decompressor provides for each chunk.
+    #
+    #     .. warning:: This may yield the empty string, without that being the
+    #                  end of the body!
+    #     """
+    #     while True:
+    #         data = await self._stream._read_one_frame()
+    #
+    #         if data is None:
+    #             break
+    #
+    #         if decode_content and self._decompressobj:
+    #             data = self._decompressobj.decompress(data)
+    #
+    #         yield data
+    #
+    #     if decode_content and self._decompressobj:
+    #         yield self._decompressobj.flush()
+    #
+    #     await self.close()
+    #
+    #     return
 
     def fileno(self):
         """
@@ -170,20 +170,20 @@ class HTTP20Response(object):
         """
         raise NotImplementedError("Not currently implemented.")
 
-    def close(self):
+    async def close(self):
         """
         Close the response. In effect this closes the backing HTTP/2 stream.
 
         :returns: Nothing.
         """
-        self._stream.close()
+        await self._stream.close()
 
     # The following methods implement the context manager protocol.
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, *args):
-        self.close()
+    async def __aexit__(self, *args):
+        await self.close()
         return False  # Never swallow exceptions.
 
 
@@ -209,19 +209,19 @@ class HTTP20Push(object):
 
         self._stream = stream
 
-    def get_response(self):
+    async def get_response(self):
         """
         Get the pushed response provided by the server.
 
         :returns: A :class:`HTTP20Response <hyper.HTTP20Response>` object
             representing the pushed response.
         """
-        return HTTP20Response(self._stream.getheaders(), self._stream)
+        return HTTP20Response(await self._stream.getheaders(), self._stream)
 
-    def cancel(self):
+    async def cancel(self):
         """
         Cancel the pushed response and close the stream.
 
         :returns: Nothing.
         """
-        self._stream.close(8) # CANCEL
+        await self._stream.close(8) # CANCEL

@@ -7,7 +7,7 @@ Objects that build hyper's connection-level HTTP/1.1 abstraction.
 """
 import logging
 import os
-import socket
+from curio import socket
 import base64
 
 from collections import Iterable, Mapping
@@ -113,12 +113,12 @@ class HTTP11Connection(object):
                 host = self.proxy_host
                 port = self.proxy_port
 
-            sock = socket.create_connection((host, port), 5)
+            sock = await socket.create_connection((host, port), 5)
             proto = None
 
             if self.secure:
                 assert not self.proxy_host, "Using a proxy with HTTPS not yet supported."
-                sock, proto = await wrap_socket(sock, host, self.ssl_context)
+                sock, proto = wrap_socket(sock, host, self.ssl_context)
 
             log.debug("Selected protocol: %s", proto)
             sock = BufferedSocket(sock, self.network_buffer_size)
@@ -175,11 +175,11 @@ class HTTP11Connection(object):
             headers[b'host'] = self.host
 
         # Begin by emitting the header block.
-        self._send_headers(method, url, headers)
+        await self._send_headers(method, url, headers)
 
         # Next, send the request body.
         if body:
-            self._send_body(body, body_type)
+            await self._send_body(body, body_type)
 
         return
 
@@ -216,18 +216,18 @@ class HTTP11Connection(object):
             self
         )
 
-    def _send_headers(self, method, url, headers):
+    async def _send_headers(self, method, url, headers):
         """
         Handles the logic of sending the header block.
         """
-        self._sock.send(b' '.join([method, url, b'HTTP/1.1\r\n']))
+        await self._sock.send(b' '.join([method, url, b'HTTP/1.1\r\n']))
 
         for name, value in headers.iter_raw():
             name, value = to_bytestring(name), to_bytestring(value)
             header = b''.join([name, b': ', value, b'\r\n'])
-            self._sock.send(header)
+            await self._sock.send(header)
 
-        self._sock.send(b'\r\n')
+        await self._sock.send(b'\r\n')
 
     def _add_body_headers(self, headers, body):
         """
@@ -270,7 +270,7 @@ class HTTP11Connection(object):
         encoded_settings = base64.urlsafe_b64encode(http2_settings.serialize_body())
         headers[b'HTTP2-Settings'] = encoded_settings.rstrip(b'=')
 
-    def _send_body(self, body, body_type):
+    async def _send_body(self, body, body_type):
         """
         Handles the HTTP/1.1 logic for sending HTTP bodies. This does magical
         different things in different cases.
@@ -284,7 +284,7 @@ class HTTP11Connection(object):
                         break
 
                     try:
-                        self._sock.send(block)
+                        await self._sock.send(block)
                     except TypeError:
                         raise ValueError(
                             "File objects must return bytestrings"
@@ -294,7 +294,7 @@ class HTTP11Connection(object):
 
             # Case for bytestrings.
             elif isinstance(body, bytes):
-                self._sock.send(body)
+                await self._sock.send(body)
 
                 return
 
@@ -302,7 +302,7 @@ class HTTP11Connection(object):
             else:
                 for item in body:
                     try:
-                        self._sock.send(item)
+                        await self._sock.send(item)
                     except TypeError:
                         raise ValueError("Body must be a bytestring")
 
@@ -316,19 +316,19 @@ class HTTP11Connection(object):
             # For now write this as four 'send' calls. That's probably
             # inefficient, let's come back to it.
             try:
-                self._sock.send(length)
-                self._sock.send(b'\r\n')
-                self._sock.send(chunk)
-                self._sock.send(b'\r\n')
+                await self._sock.send(length)
+                await self._sock.send(b'\r\n')
+                await self._sock.send(chunk)
+                await self._sock.send(b'\r\n')
             except TypeError:
                 raise ValueError(
                     "Iterable bodies must always iterate in bytestrings"
                 )
 
-        self._sock.send(b'0\r\n\r\n')
+        await self._sock.send(b'0\r\n\r\n')
         return
 
-    def close(self):
+    async def close(self):
         """
         Closes the connection. This closes the socket and then abandons the
         reference to it. After calling this method, any outstanding
@@ -340,7 +340,7 @@ class HTTP11Connection(object):
         .. warning:: This method should absolutely only be called when you are
                      certain the connection object is no longer needed.
         """
-        self._sock.close()
+        await self._sock.close()
         self._sock = None
 
     # The following two methods are the implementation of the context manager

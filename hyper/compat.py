@@ -76,7 +76,7 @@ elif is_py3:
     if is_py3_3:
         ssl = ssl_compat
     else:
-        import ssl
+        from curio import ssl
 
     unicode = str
     bytes = bytes

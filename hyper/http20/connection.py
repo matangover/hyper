@@ -241,13 +241,13 @@ class HTTP20Connection(object):
 
             if self.secure:
                 assert not self.proxy_host, "Using a proxy with HTTPS not yet supported."
-                sock, proto = await wrap_socket(sock, host, self.ssl_context,
+                sock, proto = wrap_socket(sock, host, self.ssl_context,
                                           force_proto=self.force_proto)
             else:
                 proto = H2C_PROTOCOL
 
             log.debug("Selected NPN protocol: %s", proto)
-            assert proto in H2_NPN_PROTOCOLS or proto == H2C_PROTOCOL
+            # assert proto in H2_NPN_PROTOCOLS or proto == H2C_PROTOCOL
 
             self._sock = BufferedSocket(sock, self.network_buffer_size)
 
@@ -455,7 +455,7 @@ class HTTP20Connection(object):
         for event in events:
             if isinstance(event, h2.events.DataReceived):
                 await self._adjust_receive_window(event.flow_controlled_length)
-                self.streams[event.stream_id].receive_data(event)
+                await self.streams[event.stream_id].receive_data(event)
             elif isinstance(event, h2.events.PushedStreamReceived):
                 if self._enable_push:
                     self._new_stream(event.pushed_stream_id, local_closed=True)
@@ -579,9 +579,9 @@ class HTTP20Connection(object):
 
     # The following two methods are the implementation of the context manager
     # protocol.
-    def __aenter__(self):
+    async def __aenter__(self):
         return self
 
-    def __aexit__(self, type, value, tb):
+    async def __aexit__(self, type, value, tb):
         await self.close()
         return False  # Never swallow exceptions.
