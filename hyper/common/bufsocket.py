@@ -106,7 +106,7 @@ class BufferedSocket(object):
 
         return
 
-    def recv(self, amt):
+    async def recv(self, amt):
         """
         Read some data from the socket.
 
@@ -139,7 +139,7 @@ class BufferedSocket(object):
 
         if ((self._remaining_capacity > self._bytes_in_buffer) and
             (should_read)):
-            count = self._sck.recv_into(self._buffer_view[self._buffer_end:])
+            count = await self._sck.recv_into(self._buffer_view[self._buffer_end:])
 
             # The socket just got closed. We should throw an exception if we
             # were asked for more data than we can return.
@@ -156,7 +156,7 @@ class BufferedSocket(object):
 
         return data
 
-    def fill(self):
+    async def fill(self):
         """
         Attempts to fill the buffer as much as possible. It will block for at
         most the time required to have *one* ``recv_into`` call return.
@@ -164,7 +164,7 @@ class BufferedSocket(object):
         if not self._remaining_capacity:
             self.new_buffer()
 
-        count = self._sck.recv_into(self._buffer_view[self._buffer_end:])
+        count = await self._sck.recv_into(self._buffer_view[self._buffer_end:])
         if not count:
             raise ConnectionResetError()
 
@@ -173,7 +173,7 @@ class BufferedSocket(object):
         return
 
 
-    def readline(self):
+    async def readline(self):
         """
         Read up to a newline from the network and returns it. The implicit
         maximum line length is the buffer size of the buffered socket.
@@ -209,7 +209,7 @@ class BufferedSocket(object):
             self.new_buffer()
 
         while self._bytes_in_buffer < self._buffer_size:
-            count = self._sck.recv_into(self._buffer_view[self._buffer_end:])
+            count = await self._sck.recv_into(self._buffer_view[self._buffer_end:])
             if not count:
                 raise ConnectionResetError()
 

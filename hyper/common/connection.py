@@ -76,7 +76,7 @@ class HTTPConnection(object):
             self._host, self._port, **self._h1_kwargs
         )
 
-    def request(self, method, url, body=None, headers=None):
+    async def request(self, method, url, body=None, headers=None):
         """
         This will send a request to the server using the HTTP request method
         ``method`` and the selector ``url``. If the ``body`` argument is
@@ -97,7 +97,7 @@ class HTTPConnection(object):
         headers = headers or {}
 
         try:
-            return self._conn.request(
+            return await self._conn.request(
                 method=method, url=url, body=body, headers=headers
             )
         except TLSUpgrade as e:
@@ -113,18 +113,18 @@ class HTTPConnection(object):
 
             # Because we skipped the connecting logic, we need to send the
             # HTTP/2 preamble.
-            self._conn._send_preamble()
+            await self._conn._send_preamble()
 
-            return self._conn.request(
+            return await self._conn.request(
                 method=method, url=url, body=body, headers=headers
             )
 
-    def get_response(self, *args, **kwargs):
+    async def get_response(self, *args, **kwargs):
         """
         Returns a response object.
         """
         try:
-            return self._conn.get_response(*args, **kwargs)
+            return await self._conn.get_response(*args, **kwargs)
         except HTTPUpgrade as e:
             # We upgraded via the HTTP Upgrade mechanism. We can just
             # go straight to the world of HTTP/2. Replace the backing object
@@ -141,17 +141,17 @@ class HTTPConnection(object):
             self._conn._new_stream(stream_id=1, local_closed=True)
 
             # HTTP/2 preamble must be sent after receipt of a HTTP/1.1 101
-            self._conn._send_preamble()
+            await self._conn._send_preamble()
 
-            return self._conn.get_response(1)
+            return await self._conn.get_response(1)
 
-    # The following two methods are the implementation of the context manager
-    # protocol.
-    def __enter__(self):  # pragma: no cover
+    # The following two methods are the implementation of the async context
+    # manager protocol.
+    async def __aenter__(self):  # pragma: no cover
         return self
 
-    def __exit__(self, type, value, tb):  # pragma: no cover
-        self._conn.close()
+    async def __aexit__(self, type, value, tb):  # pragma: no cover
+        await self._conn.close()
         return False  # Never swallow exceptions.
 
     # Can anyone say 'proxy object pattern'?

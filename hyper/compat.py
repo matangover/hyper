@@ -30,7 +30,7 @@ def ignore_missing():
 
 if is_py2:
     if is_py2_7_9_or_later:
-        import ssl
+        from curio import ssl
     else:
         ssl = ssl_compat
 

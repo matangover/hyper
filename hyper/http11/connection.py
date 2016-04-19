@@ -98,7 +98,7 @@ class HTTP11Connection(object):
         #: the standard hyper parsing interface.
         self.parser = Parser()
 
-    def connect(self):
+    async def connect(self):
         """
         Connect to the server specified when the object was created. This is a
         no-op if we're already connected.
@@ -118,7 +118,7 @@ class HTTP11Connection(object):
 
             if self.secure:
                 assert not self.proxy_host, "Using a proxy with HTTPS not yet supported."
-                sock, proto = wrap_socket(sock, host, self.ssl_context)
+                sock, proto = await wrap_socket(sock, host, self.ssl_context)
 
             log.debug("Selected protocol: %s", proto)
             sock = BufferedSocket(sock, self.network_buffer_size)
@@ -130,7 +130,7 @@ class HTTP11Connection(object):
 
         return
 
-    def request(self, method, url, body=None, headers=None):
+    async def request(self, method, url, body=None, headers=None):
         """
         This will send a request to the server using the HTTP request method
         ``method`` and the selector ``url``. If the ``body`` argument is
@@ -161,7 +161,7 @@ class HTTP11Connection(object):
                 raise ValueError('Header argument must be a dictionary or an iterable')
 
         if self._sock is None:
-            self.connect()
+            await self.connect()
 
         if self._send_http_upgrade:
             self._add_upgrade_headers(headers)
@@ -183,7 +183,7 @@ class HTTP11Connection(object):
 
         return
 
-    def get_response(self):
+    async def get_response(self):
         """
         Returns a response object.
 
@@ -195,7 +195,7 @@ class HTTP11Connection(object):
         response = None
         while response is None:
             # 'encourage' the socket to receive data.
-            self._sock.fill()
+            await self._sock.fill()
             response = self.parser.parse_response(self._sock.buffer)
 
         for n, v in response.headers:

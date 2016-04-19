@@ -24,7 +24,7 @@ _context = None
 cert_loc = path.join(path.dirname(__file__), 'certs.pem')
 
 
-def wrap_socket(sock, server_hostname, ssl_context=None, force_proto=None):
+async def wrap_socket(sock, server_hostname, ssl_context=None, force_proto=None):
     """
     A vastly simplified SSL wrapping function. We'll probably extend this to
     do more things later.
@@ -39,7 +39,7 @@ def wrap_socket(sock, server_hostname, ssl_context=None, force_proto=None):
     _ssl_context = ssl_context or _context
 
     # the spec requires SNI support
-    ssl_sock = _ssl_context.wrap_socket(sock, server_hostname=server_hostname)
+    ssl_sock = await _ssl_context.wrap_socket(sock, server_hostname=server_hostname)
     # Setting SSLContext.check_hostname to True only verifies that the
     # post-handshake servername matches that of the certificate. We also need
     # to check that it matches the requested one.

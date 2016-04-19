@@ -24,7 +24,7 @@ from . import errors
 
 import errno
 import logging
-import socket
+from curio import socket
 
 log = logging.getLogger(__name__)
 
@@ -145,7 +145,7 @@ class HTTP20Connection(object):
 
         return
 
-    def request(self, method, url, body=None, headers=None):
+    async def request(self, method, url, body=None, headers=None):
         """
         This will send a request to the server using the HTTP request method
         ``method`` and the selector ``url``. If the ``body`` argument is
@@ -175,7 +175,7 @@ class HTTP20Connection(object):
         if body and isinstance(body, (unicode, bytes)):
             body = to_bytestring(body)
 
-        self.endheaders(message_body=body, final=True, stream_id=stream_id)
+        await self.endheaders(message_body=body, final=True, stream_id=stream_id)
 
         return stream_id
 
@@ -183,7 +183,7 @@ class HTTP20Connection(object):
         return (self.streams[stream_id] if stream_id is not None
                 else self.recent_stream)
 
-    def get_response(self, stream_id=None):
+    async def get_response(self, stream_id=None):
         """
         Should be called after a request is sent to get a response from the
         server. If sending multiple parallel requests, pass the stream ID of
@@ -197,33 +197,32 @@ class HTTP20Connection(object):
         :returns: A :class:`HTTP20Response <hyper.HTTP20Response>` object.
         """
         stream = self._get_stream(stream_id)
-        return HTTP20Response(stream.getheaders(), stream)
+        return HTTP20Response(await stream.getheaders(), stream)
 
-    def get_pushes(self, stream_id=None, capture_all=False):
-        """
-        Returns a generator that yields push promises from the server. **Note
-        that this method is not idempotent**: promises returned in one call
-        will not be returned in subsequent calls. Iterating through generators
-        returned by multiple calls to this method simultaneously results in
-        undefined behavior.
+    # async def get_pushes(self, stream_id=None, capture_all=False):
+    #     """
+    #     Returns a generator that yields push promises from the server. **Note
+    #     that this method is not idempotent**: promises returned in one call
+    #     will not be returned in subsequent calls. Iterating through generators
+    #     returned by multiple calls to this method simultaneously results in
+    #     undefined behavior.
+    #     :param stream_id: (optional) The stream ID of the request for which to
+    #         get push promises.
+    #     :param capture_all: (optional) If ``False``, the generator will yield
+    #         all buffered push promises without blocking. If ``True``, the
+    #         generator will first yield all buffered push promises, then yield
+    #         additional ones as they arrive, and terminate when the original
+    #         stream closes.
+    #     :returns: A generator of :class:`HTTP20Push <hyper.HTTP20Push>` objects
+    #         corresponding to the streams pushed by the server.
+    #     """
+    #     stream = self._get_stream(stream_id)
+    #     for promised_stream_id, headers in await stream.get_pushes(capture_all):
+    #         yield HTTP20Push(
+    #             HTTPHeaderMap(headers), self.streams[promised_stream_id]
+    #         )
 
-        :param stream_id: (optional) The stream ID of the request for which to
-            get push promises.
-        :param capture_all: (optional) If ``False``, the generator will yield
-            all buffered push promises without blocking. If ``True``, the
-            generator will first yield all buffered push promises, then yield
-            additional ones as they arrive, and terminate when the original
-            stream closes.
-        :returns: A generator of :class:`HTTP20Push <hyper.HTTP20Push>` objects
-            corresponding to the streams pushed by the server.
-        """
-        stream = self._get_stream(stream_id)
-        for promised_stream_id, headers in stream.get_pushes(capture_all):
-            yield HTTP20Push(
-                HTTPHeaderMap(headers), self.streams[promised_stream_id]
-            )
-
-    def connect(self):
+    async def connect(self):
         """
         Connect to the server specified when the object was created. This is a
         no-op if we're already connected.
@@ -238,11 +237,11 @@ class HTTP20Connection(object):
                 host = self.proxy_host
                 port = self.proxy_port
 
-            sock = socket.create_connection((host, port))
+            sock = await socket.create_connection((host, port))
 
             if self.secure:
                 assert not self.proxy_host, "Using a proxy with HTTPS not yet supported."
-                sock, proto = wrap_socket(sock, host, self.ssl_context,
+                sock, proto = await wrap_socket(sock, host, self.ssl_context,
                                           force_proto=self.force_proto)
             else:
                 proto = H2C_PROTOCOL
@@ -252,11 +251,11 @@ class HTTP20Connection(object):
 
             self._sock = BufferedSocket(sock, self.network_buffer_size)
 
-            self._send_preamble()
+            await self._send_preamble()
 
         return
 
-    def _send_preamble(self):
+    async def _send_preamble(self):
         """
         Sends the necessary HTTP/2 preamble.
         """
@@ -266,12 +265,12 @@ class HTTP20Connection(object):
         self._conn.update_settings(
             {h2.settings.ENABLE_PUSH: int(self._enable_push)}
         )
-        self._sock.sendall(self._conn.data_to_send())
+        await self._sock.sendall(self._conn.data_to_send())
 
         # The server will also send an initial settings frame, so get it.
-        self._recv_cb()
+        await self._recv_cb()
 
-    def close(self, error_code=None):
+    async def close(self, error_code=None):
         """
         Close the connection to the server.
 
@@ -286,12 +285,12 @@ class HTTP20Connection(object):
         # Send GoAway frame to the server
         try:
             self._conn.close_connection(error_code or 0)
-            self._send_cb(self._conn.data_to_send(), True)
+            await self._send_cb(self._conn.data_to_send(), True)
         except Exception as e:  # pragma: no cover
             log.warn("GoAway frame could not be sent: %s" % e)
 
         if self._sock is not None:
-            self._sock.close()
+            await self._sock.close()
             self.__init_state()
 
     def putrequest(self, method, selector, **kwargs):
@@ -346,7 +345,7 @@ class HTTP20Connection(object):
 
         return
 
-    def endheaders(self, message_body=None, final=False, stream_id=None):
+    async def endheaders(self, message_body=None, final=False, stream_id=None):
         """
         Sends the prepared headers to the server. If the ``message_body``
         argument is provided it will also be sent to the server as the body of
@@ -364,22 +363,22 @@ class HTTP20Connection(object):
             sending the headers on.
         :returns: Nothing.
         """
-        self.connect()
+        await self.connect()
 
         stream = self._get_stream(stream_id)
 
         headers_only = (message_body is None and final)
-        stream.send_headers(headers_only)
+        await stream.send_headers(headers_only)
 
         # Send whatever data we have.
         if message_body is not None:
-            stream.send_data(message_body, final)
+            await stream.send_data(message_body, final)
 
-        self._send_cb(self._conn.data_to_send())
+        await self._send_cb(self._conn.data_to_send())
 
         return
 
-    def send(self, data, final=False, stream_id=None):
+    async def send(self, data, final=False, stream_id=None):
         """
         Sends some data to the server. This data will be sent immediately
         (excluding the normal HTTP/2 flow control rules). If this is the last
@@ -394,7 +393,7 @@ class HTTP20Connection(object):
         :returns: Nothing.
         """
         stream = self._get_stream(stream_id)
-        stream.send_data(data, final)
+        await stream.send_data(data, final)
 
         return
 
@@ -416,20 +415,20 @@ class HTTP20Connection(object):
 
         return s
 
-    def _send_cb(self, data, tolerate_peer_gone=False):
+    async def _send_cb(self, data, tolerate_peer_gone=False):
         """
         This is the callback used by streams to send data on the connection.
 
         This acts as a dumb wrapper around the socket send method.
         """
         try:
-            self._sock.sendall(data)
+            await self._sock.sendall(data)
         except socket.error as e:
             if (not tolerate_peer_gone or
                 e.errno not in (errno.EPIPE, errno.ECONNRESET)):
                 raise
 
-    def _adjust_receive_window(self, frame_len):
+    async def _adjust_receive_window(self, frame_len):
         """
         Adjusts the window size in response to receiving a DATA frame of length
         ``frame_len``. May send a WINDOWUPDATE frame if necessary.
@@ -438,24 +437,24 @@ class HTTP20Connection(object):
 
         if increment:
             self._conn.increment_flow_control_window(increment)
-            self._send_cb(self._conn.data_to_send(), True)
+            await self._send_cb(self._conn.data_to_send(), True)
 
         return
 
-    def _single_read(self):
+    async def _single_read(self):
         """
         Performs a single read from the socket and hands the data off to the
         h2 connection object.
         """
         # Begin by reading what we can from the socket.
-        self._sock.fill()
+        await self._sock.fill()
         data = self._sock.buffer.tobytes()
         self._sock.advance_buffer(len(data))
 
         events = self._conn.receive_data(data)
         for event in events:
             if isinstance(event, h2.events.DataReceived):
-                self._adjust_receive_window(event.flow_controlled_length)
+                await self._adjust_receive_window(event.flow_controlled_length)
                 self.streams[event.stream_id].receive_data(event)
             elif isinstance(event, h2.events.PushedStreamReceived):
                 if self._enable_push:
@@ -466,7 +465,7 @@ class HTTP20Connection(object):
                     # the ENABLE_PUSH setting is 0, but the spec leaves the
                     # client action undefined when they do it anyway. So we
                     # just refuse the stream and go about our business.
-                    self._send_rst_frame(event.pushed_stream_id, 7)
+                    await self._send_rst_frame(event.pushed_stream_id, 7)
             elif isinstance(event, h2.events.ResponseReceived):
                 self.streams[event.stream_id].receive_response(event)
             elif isinstance(event, h2.events.TrailersReceived):
@@ -481,7 +480,7 @@ class HTTP20Connection(object):
                 # If we get GoAway with error code zero, we are doing a
                 # graceful shutdown and all is well. Otherwise, throw an
                 # exception.
-                self.close()
+                await self.close()
 
                 # If an error occured, try to read the error description from
                 # code registry otherwise use the frame's additional data.
@@ -506,9 +505,9 @@ class HTTP20Connection(object):
 
         data = self._conn.data_to_send()
         if data:
-            self._send_cb(data, tolerate_peer_gone=True)
+            await self._send_cb(data, tolerate_peer_gone=True)
 
-    def _recv_cb(self):
+    async def _recv_cb(self):
         """
         This is the callback used by streams to read data from the connection.
 
@@ -521,7 +520,7 @@ class HTTP20Connection(object):
         it's likely that streams will read a frame that doesn't belong to them.
         """
         # TODO: Re-evaluate this.
-        self._single_read()
+        await self._single_read()
         count = 9
         retry_wait = 0.05  # can improve responsiveness to delay the retry
 
@@ -529,7 +528,7 @@ class HTTP20Connection(object):
             # If the connection has been closed, bail out, but retry
             # on transient errors.
             try:
-                self._single_read()
+                await self._single_read()
             except ConnectionResetError:
                 break
             except ssl.SSLError as e:  # pragma: no cover
@@ -551,12 +550,12 @@ class HTTP20Connection(object):
 
             count -= 1
 
-    def _send_rst_frame(self, stream_id, error_code):
+    async def _send_rst_frame(self, stream_id, error_code):
         """
         Send reset stream frame with error code and remove stream from map.
         """
         self._conn.reset_stream(stream_id, error_code=error_code)
-        self._send_cb(self._conn.data_to_send())
+        await self._send_cb(self._conn.data_to_send())
 
         try:
             del self.streams[stream_id]
@@ -580,9 +579,9 @@ class HTTP20Connection(object):
 
     # The following two methods are the implementation of the context manager
     # protocol.
-    def __enter__(self):
+    def __aenter__(self):
         return self
 
-    def __exit__(self, type, value, tb):
-        self.close()
+    def __aexit__(self, type, value, tb):
+        await self.close()
         return False  # Never swallow exceptions.
